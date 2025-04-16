@@ -24,10 +24,12 @@ include("utility/autoopt.jl")
 include("utility/retractions.jl")
 
 include("networks/tensors.jl")
+include("networks/nestedtensor.jl")
 include("networks/local_sandwich.jl")
 include("networks/infinitesquarenetwork.jl")
 
 include("states/infinitepeps.jl")
+include("states/quasiparticle_state.jl")
 include("states/infiniteweightpeps.jl")
 include("states/infinitepartitionfunction.jl")
 
@@ -38,6 +40,7 @@ include("operators/lattices/squarelattice.jl")
 include("operators/models.jl")
 
 include("environments/ctmrg_environments.jl")
+include("environments/qp_envs.jl")
 include("environments/vumps_environments.jl")
 
 include("algorithms/contractions/ctmrg_contractions.jl")
@@ -51,6 +54,7 @@ include("algorithms/ctmrg/ctmrg.jl")
 include("algorithms/ctmrg/projectors.jl")
 include("algorithms/ctmrg/simultaneous.jl")
 include("algorithms/ctmrg/sequential.jl")
+include("algorithms/ctmrg/qp_ctmrg.jl")
 include("algorithms/ctmrg/gaugefix.jl")
 
 include("algorithms/truncation/truncationschemes.jl")
@@ -67,12 +71,14 @@ include("utility/symmetrization.jl")
 include("algorithms/optimization/fixed_point_differentiation.jl")
 include("algorithms/optimization/peps_optimization.jl")
 
+include("algorithms/excitation/qp_excitation.jl")
+
 include("algorithms/select_algorithm.jl")
 
 using .Defaults: set_scheduler!
 export set_scheduler!
 export SVDAdjoint, IterSVD
-export CTMRGEnv, SequentialCTMRG, SimultaneousCTMRG
+export CTMRGEnv, SequentialCTMRG, SimultaneousCTMRG, SequentialQPCTMRG
 export FixedSpaceTruncation, HalfInfiniteProjector, FullInfiniteProjector
 export LocalOperator
 export expectation_value, cost_function, product_peps, correlation_length, network_value
