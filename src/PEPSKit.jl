@@ -50,10 +50,12 @@ include("utility/autoopt.jl")
 include("utility/retractions.jl")
 
 include("networks/tensors.jl")
+include("networks/nestedtensor.jl")
 include("networks/local_sandwich.jl")
 include("networks/infinitesquarenetwork.jl")
 
 include("states/infinitepeps.jl")
+include("states/quasiparticle_state.jl")
 include("states/infinitepartitionfunction.jl")
 
 include("utility/symmetrization.jl")
@@ -65,6 +67,7 @@ include("operators/lattices/squarelattice.jl")
 include("operators/models.jl")
 
 include("environments/ctmrg_environments.jl")
+include("environments/qp_envs.jl")
 include("environments/vumps_environments.jl")
 include("environments/suweight.jl")
 include("environments/bp_environments.jl")
@@ -97,6 +100,7 @@ include("algorithms/ctmrg/ctmrg.jl")
 include("algorithms/ctmrg/projectors.jl")
 include("algorithms/ctmrg/simultaneous.jl")
 include("algorithms/ctmrg/sequential.jl")
+include("algorithms/ctmrg/qp_ctmrg.jl")
 include("algorithms/ctmrg/gaugefix.jl")
 include("algorithms/ctmrg/c4v.jl")
 
@@ -119,6 +123,8 @@ include("algorithms/correlators.jl")
 
 include("algorithms/optimization/fixed_point_differentiation.jl")
 include("algorithms/optimization/peps_optimization.jl")
+
+include("algorithms/excitation/qp_excitation.jl")
 
 include("algorithms/select_algorithm.jl")
 
