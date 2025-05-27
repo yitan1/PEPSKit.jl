@@ -49,8 +49,9 @@ include("utility/hook_pullback.jl")
 include("utility/autoopt.jl")
 include("utility/retractions.jl")
 
-include("networks/tensors.jl")
 include("networks/nestedtensor.jl")
+include("networks/nestedtensor_rrule.jl")
+include("networks/tensors.jl")
 include("networks/local_sandwich.jl")
 include("networks/infinitesquarenetwork.jl")
 

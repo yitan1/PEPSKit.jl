@@ -26,12 +26,11 @@ Note:
     Most implented functions act as wrappers for the corresponding `numpy` functions
     on the individual tensors
 """
-struct NestedTensor{T,S,N1,N2,C<:AbstractTensorMap{T,S,N1,N2}} <:
-       AbstractTensorMap{T,S,N1,N2}
+struct NestedTensor{C<:AbstractTensorMap}
     Ts::Vector{C}
-    function NestedTensor(Ts::Vector{C}) where {T,S,N1,N2,C<:AbstractTensorMap{T,S,N1,N2}}
+    function NestedTensor(Ts::Vector{C}) where {C<:AbstractTensorMap}
         @assert length(Ts) == 4 "NestedTensor must have 4 components"
-        return new{T,S,N1,N2,C}(Ts)
+        return new{C}(Ts)
     end
 end
 
@@ -45,10 +44,13 @@ Base.copy(t::NestedTensor) = NestedTensor(copy.(t.Ts))
 
 Base.getindex(t::NestedTensor, i::Int) = t.Ts[i]
 Base.setindex!(t::NestedTensor, i::Int, v) = t.Ts[i] = v
+# Base.iterate(n::NestedTensor, args...) = iterate(n.Ts, args...)
+# Base.eachindex(A::NestedTensor) = eachindex(A.data)
+
 
 function shift(t::NestedTensor, phi)
-    eϕ = exp(im*phi)
-    eϕ⁻ = exp(-im*phi)
+    eϕ = exp(im * phi)
+    eϕ⁻ = exp(-im * phi)
     return NestedTensor([
         t[1],        # regular term unchanged
         t[2] * eϕ,  # B term picks up +φ
@@ -58,7 +60,13 @@ function shift(t::NestedTensor, phi)
 end
 
 # VectorInterface interface
-TensorKit.VectorInterface.scalartype(t::NestedTensor) = VectorInterface.scalartype(t[1])
+function VectorInterface.scalartype(::Type{NestedTensor{T}}) where {T<:AbstractTensorMap}
+    return VectorInterface.scalartype(T)
+end
+
+function VectorInterface.zerovector(A::NestedTensor, ::Type{S}) where {S<:Number} 
+    return NestedTensor([VectorInterface.zerovector(t) for t in A.Ts])
+end
 
 ## Math
 # function Base.:+(A₁::NestedTensor, A₂::NestedTensor)
@@ -73,7 +81,7 @@ Base.:/(A::NestedTensor, α::Number) = NestedTensor(A.Ts / α)
 # # LinearAlgebra.dot(A₁::NestedTensor, A₂::NestedTensor) = dot(unitcell(A₁), unitcell(A₂))
 LinearAlgebra.norm(A::NestedTensor) = norm(A.Ts[1])
 
-function Base.:*(A::NestedTensor, B::NestedTensor) 
+function Base.:*(A::NestedTensor, B::NestedTensor)
     t1 = A[1] * B[1]
     t2 = A[2] * B[1] + A[1] * B[2]
     t3 = A[3] * B[1] + A[1] * B[3]
@@ -85,13 +93,29 @@ function LinearAlgebra.tr(A::NestedTensor)
     return [tr(A.Ts[i]) for i in 1:4]
 end
 
+function Base.fill!(t::NestedTensor, v)
+    for i in 1:4
+        fill!(t.Ts[i], v[i])
+    end
+    return t
+end
+
 # Rotations 
-Base.rotl90(t::NestedTensor) = NestedTensor(map(rotl90, t.Ts))
-Base.rotr90(t::NestedTensor) = NestedTensor(map(rotr90, t.Ts))
-Base.rot180(t::NestedTensor) = NestedTensor(map(rot180, t.Ts))
+# Base.rotl90(t::NestedTensor) = NestedTensor(map(rotl90, t.Ts))
+# Base.rotr90(t::NestedTensor) = NestedTensor(map(rotr90, t.Ts))
+# Base.rot180(t::NestedTensor) = NestedTensor(map(rot180, t.Ts))
 
+# TensorKit interface
+TensorKit.space(t::NestedTensor) = space(t[1])
+TensorKit.space(t::NestedTensor, dir) = space(t[1], dir)
 
+TensorKit.permute(t::NestedTensor, perm) = NestedTensor(map(t -> permute(t, perm), t.Ts))
+function TensorKit.permute(t::NestedTensor, perm::Index2Tuple)
+    return NestedTensor(map(t -> permute(t, perm), t.Ts))
+end
 
+# TensorOperations interface
+# conj is not exchange the location of B and Bd
 
 TO.tensorstructure(t::NestedTensor) = TO.tensorstructure(t[1])
 function TO.tensorstructure(t::NestedTensor, iA::Int, conjA::Bool)
@@ -100,11 +124,12 @@ end
 
 function TO.tensoralloc(
     ::Type{NT},
-    structure::TensorMapSpace{S,N₁,N₂},
+    structure::TensorMapSpace,
     istemp::Val,
     allocator=TO.DefaultAllocator(),
-) where {T,S,N₁,N₂,NT<:NestedTensor{T,S,N₁,N₂}}
-    Ts = [TO.tensoralloc(TensorMap{T}, structure, istemp, allocator) for _ in 1:4]
+    # ) where {T,S,N₁,N₂,NT<:NestedTensor{T,S,N₁,N₂}}
+) where {C<:AbstractTensorMap,NT<:NestedTensor{C}}
+    Ts = [TO.tensoralloc(C, structure, istemp, allocator) for _ in 1:4]
     return NestedTensor(Ts)
 end
 
@@ -140,7 +165,8 @@ function TO.tensoradd_type(
     TC, A::NestedTensor, pA::Index2Tuple{N₁,N₂}, conjA::Bool
 ) where {N₁,N₂}
     M = TO.tensoradd_type(TC, A[1], pA, conjA)
-    return NestedTensor{eltype(M),spacetype(M),numout(M),numin(M),M}
+    # return NestedTensor{eltype(M),spacetype(M),numout(M),numin(M),M}
+    return NestedTensor{M}
 end
 
 # return the second parameter of tensoralloc(ttype, structure)
@@ -161,8 +187,8 @@ function TO.tensortrace!(
     backend,
     allocator,
 )
-    for i in eachindex(C.Ts)
-        TO.tensortrace!(C.Ts[i], A.Ts[i], p, q, conjA, α, β, backend, allocator)
+    for i in 1:4
+        C.Ts[i] = TO.tensortrace!(C.Ts[i], A.Ts[i], p, q, conjA, α, β, backend, allocator)
     end
 
     return C
@@ -230,18 +256,7 @@ function TO.tensorcontract!(
 )
     for i in 1:4
         TO.tensorcontract!(
-            C[i],
-            A[i],
-            pA,
-            conjA,
-            B,
-            pB,
-            conjB,
-            pAB,
-            α,
-            β,
-            backend,
-            allocator,
+            C[i], A[i], pA, conjA, B, pB, conjB, pAB, α, β, backend, allocator
         )
     end
     return C
@@ -263,18 +278,7 @@ function TO.tensorcontract!(
 )
     for i in 1:4
         TO.tensorcontract!(
-            C[i],
-            A,
-            pA,
-            conjA,
-            B[i],
-            pB,
-            conjB,
-            pAB,
-            α,
-            β,
-            backend,
-            allocator,
+            C[i], A, pA, conjA, B[i], pB, conjB, pAB, α, β, backend, allocator
         )
     end
     return C
@@ -292,7 +296,8 @@ function TO.tensorcontract_type(
     pAB::Index2Tuple{N₁,N₂},
 ) where {N₁,N₂}
     M = TO.tensorcontract_type(TC, A[1], pA, conjA, B[1], pB, conjB, pAB)
-    return NestedTensor{eltype(M),spacetype(M),numout(M),numin(M),M}
+    # return NestedTensor{eltype(M),spacetype(M),numout(M),numin(M),M}
+    return NestedTensor{M}
 end
 
 function TO.tensorcontract_type(
@@ -306,7 +311,8 @@ function TO.tensorcontract_type(
     pAB::Index2Tuple{N₁,N₂},
 ) where {N₁,N₂}
     M = TO.tensorcontract_type(TC, A, pA, conjA, B[1], pB, conjB, pAB)
-    return NestedTensor{eltype(M), spacetype(M), numout(M), numin(M), M}
+    # return NestedTensor{eltype(M), spacetype(M), numout(M), numin(M), M}
+    return NestedTensor{M}
 end
 
 function TO.tensorcontract_type(
@@ -320,7 +326,8 @@ function TO.tensorcontract_type(
     pAB::Index2Tuple{N₁,N₂},
 ) where {N₁,N₂}
     M = TO.tensorcontract_type(TC, A[1], pA, conjA, B, pB, conjB, pAB)
-    return NestedTensor{eltype(M), spacetype(M), numout(M), numin(M), M}
+    # return NestedTensor{eltype(M), spacetype(M), numout(M), numin(M), M}
+    return NestedTensor{M}
 end
 
 # return the second parameter of tensoralloc(ttype, structure)
@@ -359,15 +366,3 @@ function TO.tensorcontract_structure(
 ) where {N₁,N₂}
     return TO.tensorcontract_structure(A[1], pA, conjA, B, pB, conjB, pAB)
 end
-
-
-# PEPSTensor interface
-# const PEPSTensorLike = PEPSTensor
-# Base.rotl90(t::PEPSTensor) = permute(t, ((1,), (3, 4, 5, 2)))
-# Base.rotr90(t::PEPSTensor) = permute(t, ((1,), (5, 2, 3, 4)))
-# Base.rot180(t::PEPSTensor) = permute(t, ((1,), (4, 5, 2, 3)))
-
-physicalspace(t::NestedTensor) = space(t[1], 1)
-virtualspace(t::NestedTensor, dir) = space(t[1], dir + 1)
-
-TensorKit.space(t::NestedTensor) = space(t[1])

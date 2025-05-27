@@ -38,6 +38,10 @@ function InfiniteSquareNetwork(top::InfinitePEPS{T}, bot::InfinitePEPS{T}=top) w
     return InfiniteSquareNetwork(map(tuple, unitcell(top), exchange_B_Bd(unitcell(bot))))
 end
 
+function exchange_B_Bd(A::InfinitePEPS{T}) where {T<:NestedTensor}
+    InfinitePEPS(exchange_B_Bd(unitcell(A)))
+end
+
 function exchange_B_Bd(A::Matrix{T}) where {T<:NestedTensor}
     return map(a -> NestedTensor([a[1], a[3], a[2], a[4]]), A)
 end
