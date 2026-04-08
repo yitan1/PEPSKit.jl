@@ -9,6 +9,52 @@ function ChainRulesCore.rrule(
     return nt, pullback
 end
 
+function ChainRulesCore.rrule(::typeof(getindex), t::NestedTensor, i::Int)
+    y = getindex(t, i)
+    project_t = ProjectTo(t)
+    project_y = ProjectTo(y)
+
+    function pullback(Δy_)
+        Δy = unthunk(Δy_)
+        if Δy isa AbstractZero
+            return NoTangent(), Δy, NoTangent()
+        end
+
+        dTs = [zerovector(tt) for tt in t.Ts]
+        dTs[i] = project_y(Δy)
+        return NoTangent(), project_t(NestedTensor(dTs)), NoTangent()
+    end
+
+    return y, pullback
+end
+
+function _rrule_via_ad_project(config, f, projectors::Tuple, args...)
+    y, pb = rrule_via_ad(config, f, args...)
+    function pullback(Δy)
+        d = pb(Δy)
+        return (
+            d[1],
+            ntuple(length(projectors)) do i
+                di = d[i + 1]
+                p = projectors[i]
+                return p === nothing ? di : p(unthunk(di))
+            end...,
+        )
+    end
+    return y, pullback
+end
+
+function ChainRulesCore.rrule(::typeof(TO.tensorscalar), C::NestedTensor)
+    y = TO.tensorscalar(C)
+    function pullback(Δy_)
+        Δy = unthunk(Δy_)
+        ΔTs = Δy.Ts
+        dT = TO.tensoralloc(typeof(C), TO.tensorstructure(C))
+        return NoTangent(), ProjectTo(C)(fill!(dT, ΔTs))
+    end
+    return y, pullback
+end
+
 function ChainRulesCore.rrule(
     ::typeof(TO.tensoradd!),
     C::NestedTensor,
@@ -31,7 +77,16 @@ function ChainRulesCore.rrule(
     end
 
     config = Zygote.ZygoteRuleConfig()
-    return rrule_via_ad(config, f, C, A, pA, conjA, α, β, ba...)
+    projectors = (
+        ProjectTo(C),
+        ProjectTo(A),
+        nothing,
+        nothing,
+        nothing,
+        nothing,
+        ntuple(_ -> nothing, length(ba))...,
+    )
+    return _rrule_via_ad_project(config, f, projectors, C, A, pA, conjA, α, β, ba...)
 end
 
 function ChainRulesCore.rrule(
@@ -62,7 +117,22 @@ function ChainRulesCore.rrule(
     end
 
     config = Zygote.ZygoteRuleConfig()
-    return rrule_via_ad(config, f, C, A, pA, conjA, B, pB, conjB, pAB, α, β, ba...)
+    projectors = (
+        ProjectTo(C),
+        ProjectTo(A),
+        nothing,
+        nothing,
+        nothing,
+        nothing,
+        nothing,
+        nothing,
+        nothing,
+        nothing,
+        ntuple(_ -> nothing, length(ba))...,
+    )
+    return _rrule_via_ad_project(
+        config, f, projectors, C, A, pA, conjA, B, pB, conjB, pAB, α, β, ba...
+    )
 end
 
 function ChainRulesCore.rrule(
@@ -95,7 +165,22 @@ function ChainRulesCore.rrule(
     end
 
     config = Zygote.ZygoteRuleConfig()
-    return rrule_via_ad(config, f, C, A, pA, conjA, B, pB, conjB, pAB, α, β, ba...)
+    projectors = (
+        ProjectTo(C),
+        nothing,
+        nothing,
+        nothing,
+        ProjectTo(B),
+        nothing,
+        nothing,
+        nothing,
+        nothing,
+        nothing,
+        ntuple(_ -> nothing, length(ba))...,
+    )
+    return _rrule_via_ad_project(
+        config, f, projectors, C, A, pA, conjA, B, pB, conjB, pAB, α, β, ba...
+    )
 end
 
 function ChainRulesCore.rrule(
@@ -140,7 +225,22 @@ function ChainRulesCore.rrule(
     end
 
     config = Zygote.ZygoteRuleConfig()
-    return rrule_via_ad(config, f, C, A, pA, conjA, B, pB, conjB, pAB, α, β, ba...)
+    projectors = (
+        ProjectTo(C),
+        ProjectTo(A),
+        nothing,
+        nothing,
+        ProjectTo(B),
+        nothing,
+        nothing,
+        nothing,
+        nothing,
+        nothing,
+        ntuple(_ -> nothing, length(ba))...,
+    )
+    return _rrule_via_ad_project(
+        config, f, projectors, C, A, pA, conjA, B, pB, conjB, pAB, α, β, ba...
+    )
 end
 
 function ChainRulesCore.rrule(
@@ -166,7 +266,17 @@ function ChainRulesCore.rrule(
     end
 
     config = Zygote.ZygoteRuleConfig()
-    return rrule_via_ad(config, f, C, A, p, q, conjA, α, β, ba...)
+    projectors = (
+        ProjectTo(C),
+        ProjectTo(A),
+        nothing,
+        nothing,
+        nothing,
+        nothing,
+        nothing,
+        ntuple(_ -> nothing, length(ba))...,
+    )
+    return _rrule_via_ad_project(config, f, projectors, C, A, p, q, conjA, α, β, ba...)
 end
 
 # function ChainRulesCore.rrule(

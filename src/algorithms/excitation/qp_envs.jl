@@ -1,8 +1,13 @@
 # struct QPCTMRGEnv end
 
+function check_environment_virtualspace(E::NestedTensor)
+    return isdual(space(E, 1)) &&
+        throw(ArgumentError("Dual environment virtual spaces are not allowed (for now)."))
+end
+
 function qp_CTMRGEnv(env0::CTMRGEnv)
-    Cs = map(a -> NestedTensor(a), env0.corners)
-    Es = map(a -> NestedTensor(a), env0.edges)
+    Cs = map(a -> nested_single(a), env0.corners)
+    Es = map(a -> nested_single(a), env0.edges)
     return CTMRGEnv(Cs, Es)
 end
 
