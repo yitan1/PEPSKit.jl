@@ -50,9 +50,31 @@ function excitation(
     return E, g
 end
 
-function run_es(A, B, env, ham)
-    qp_peps = InfiniteQPPEPS(A, x)
+function run_es(A, B, qp_env0, ham; pre_ctm_alg = nothing)
+    qp_peps = InfiniteQPPEPS(A, B)
+    qp_env1 = qp_env0
+    qp_env1, info = leading_boundary(qp_env0, qp_peps, pre_ctm_alg; conv_level=4)
 
+    qp_nrm = PEPSKit.qp_norm(qp_peps, qp_env1)
+    qp_e = PEPSKit.qp_energy(qp_peps, qp_env1, ham)
+    @show qp_e, qp_nrm
+    return qp_e / qp_nrm
+end
+
+function qp_norm(AB, qp_env)
+    env_bra = [_contract_env_bra((r, c), bra(AB), qp_env) for r in axes(AB, 1), c in axes(AB, 2)]
+
+    n_all = [_contract_env_bra_ket(env_bra[r, c], AB[r, c]) for r in axes(env_bra, 1), c in axes(env_bra, 2)]
+    nAA = [_contract_env_bra_ket(env_bra[r, c][1], AB[r, c][1]) for r in axes(env_bra, 1), c in axes(env_bra, 2)]
+    nBd_B = [_contract_env_bra_ket(env_bra[r, c][3], AB[r, c][2]) for r in axes(env_bra, 1), c in axes(env_bra, 2)]
+    # gs_nrm = gs_norm1x1(InfiniteSquareNetwork(AB), qp_env)
+    # net_val = qp_network_value(InfiniteSquareNetwork(AB), qp_env)
+    # @show gs_nrm[1]
+    # @show net_val
+    # @show nAA
+    # @show nBd_B
+    qp_nrm = nBd_B ./ nAA
+    return sum(qp_nrm) / length(qp_nrm)
 end
 
 # optimize by density matrix
@@ -63,9 +85,12 @@ function qp_expectation_value(
     peps_ket = ket(qp_peps)
     peps_bra = bra(qp_peps)
     term_vals = dtmap([O.terms...]) do (inds, operator)  # OhMyThreads can't iterate over O.terms directly
-        Ei = contract_local_operator(inds, operator, peps_ket, peps_bra, env)
-        Ni = contract_local_norm(inds, peps_ket, peps_bra, env)
-        Ei[E_order] / Ni[N_order]
+        ro = reduced_densitymatrix(inds, peps_ket, peps_bra, env)
+        return trmul(operator, ro)[4]
+        # Ei = contract_local_operator(inds, operator, peps_ket, peps_bra, env)
+        # Ni = contract_local_norm(inds, peps_ket, peps_bra, env)
+        # @show Ni
+        # Ei[E_order] / Ni[1]
     end
     return sum(term_vals)
 end
@@ -97,4 +122,9 @@ function qp_network_value(network::InfiniteSquareNetwork{<:Tuple{<:NestedTensor,
     end
 end
 
-
+function qp_net_norm(network::InfiniteSquareNetwork{<:Tuple{<:NestedTensor,<:NestedTensor}}, env::CTMRGEnv{T2,T3}) where {T2<:NestedTensor,T3<:NestedTensor}
+    return prod(Iterators.product(axes(network)...)) do (r, c)
+        upper = _contract_site((r, c), network, env) 
+        return upper
+    end
+end

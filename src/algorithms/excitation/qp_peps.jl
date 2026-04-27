@@ -19,52 +19,41 @@ function ChainRulesCore.rrule(
     ::Type{InfiniteQPPEPS}, A::InfinitePEPS{T}, B::InfinitePEPS{T}
 ) where {T<:PEPSTensor}
     qp = InfiniteQPPEPS(A, B)
-    A_uc = unitcell(A)
-    B_uc = unitcell(B)
-    projA = ChainRulesCore.ProjectTo(A)
-    projB = ChainRulesCore.ProjectTo(B)
 
     function pullback(Δqp_)
         Δqp = ChainRulesCore.unthunk(Δqp_)
         Δqp isa ChainRulesCore.AbstractZero &&
             return ChainRulesCore.NoTangent(), ChainRulesCore.ZeroTangent(), ChainRulesCore.ZeroTangent()
-
-        ΔAB = Δqp isa InfiniteQPPEPS ? unitcell(Δqp) : ChainRulesCore.unthunk(getproperty(Δqp, :AB))
-
-        comp(Δnt, i) = begin
-            Δnt = ChainRulesCore.unthunk(Δnt)
-            if Δnt isa NestedTensor
-                return Δnt[i]
-            else
-                return ChainRulesCore.unthunk(getproperty(Δnt, :Ts))[i]
-            end
-        end
-
-        dA_uc = similar(A_uc)
-        dB_uc = similar(B_uc)
-        @inbounds for I in eachindex(ΔAB)
-            dA_I = ChainRulesCore.unthunk(comp(ΔAB[I], 1))
-            dB_I = ChainRulesCore.unthunk(comp(ΔAB[I], 2))
-
-            dA_uc[I] = dA_I isa ChainRulesCore.AbstractZero ?
-                        VectorInterface.zerovector(A_uc[I]) :
-                        ChainRulesCore.ProjectTo(A_uc[I])(dA_I)
-            dB_uc[I] = dB_I isa ChainRulesCore.AbstractZero ?
-                        VectorInterface.zerovector(B_uc[I]) :
-                        ChainRulesCore.ProjectTo(B_uc[I])(dB_I)
-        end
-
-        dA = InfinitePEPS(dA_uc)
-        dB = InfinitePEPS(dB_uc)
-
-        return ChainRulesCore.NoTangent(), projA(dA), projB(dB)
+        ΔAB = unitcell(Δqp)
+        ΔA = InfinitePEPS(map(nt -> nt[1], ΔAB))
+        ΔB = InfinitePEPS(map(nt -> nt[2], ΔAB))
+        return ChainRulesCore.NoTangent(), ΔA, ΔB
     end
 
     return qp, pullback
 end
 
+function InfiniteQPPEPS(A::InfinitePEPS{T}, B::Array{T, 2}) where {T<:PEPSTensor}
+    return InfiniteQPPEPS(A, InfinitePEPS(B))
+end
+
 function InfiniteQPPEPS(A::Array{T, 2}, B::Array{T, 2}) where {T<:PEPSTensor}
     return InfiniteQPPEPS(InfinitePEPS(A), InfinitePEPS(B))
+end
+
+function ChainRulesCore.rrule(
+    ::Type{InfiniteQPPEPS}, AB::Matrix{NestedTensor{T}}
+) where {T<:PEPSTensor}
+    qp = InfiniteQPPEPS(AB)
+
+    function InfiniteQPPEPS_pullback(Δqp_)
+        Δqp = ChainRulesCore.unthunk(Δqp_)
+        Δqp isa ChainRulesCore.AbstractZero &&
+            return ChainRulesCore.NoTangent(), VectorInterface.zerovector(AB)
+        return ChainRulesCore.NoTangent(), unitcell(Δqp)
+    end
+
+    return qp, InfiniteQPPEPS_pullback
 end
 
 unitcell(qp::InfiniteQPPEPS) = qp.AB
@@ -80,6 +69,23 @@ Base.getindex(qp::InfiniteQPPEPS, args...) = getindex(unitcell(qp), args...)
 Base.setindex!(qp::InfiniteQPPEPS, args...) = (setindex!(unitcell(qp), args...); qp)
 Base.axes(qp::InfiniteQPPEPS, args...) = axes(unitcell(qp), args...)
 
+function VectorInterface.scalartype(::Type{<:InfiniteQPPEPS{T}}) where {T<:PEPSTensor}
+    return VectorInterface.scalartype(NestedTensor{T})
+end
+function VectorInterface.scalartype(qp::InfiniteQPPEPS)
+    return VectorInterface.scalartype(unitcell(qp)[1])
+end
+function VectorInterface.zerovector(qp::InfiniteQPPEPS)
+    return InfiniteQPPEPS(map(VectorInterface.zerovector, unitcell(qp)))
+end
+
+Base.:+(qp1::InfiniteQPPEPS, qp2::InfiniteQPPEPS) = InfiniteQPPEPS(unitcell(qp1) .+ unitcell(qp2))
+Base.:-(qp1::InfiniteQPPEPS, qp2::InfiniteQPPEPS) = InfiniteQPPEPS(unitcell(qp1) .- unitcell(qp2))
+Base.:*(α::Number, qp::InfiniteQPPEPS) = InfiniteQPPEPS(α .* unitcell(qp))
+Base.:*(qp::InfiniteQPPEPS, α::Number) = α * qp
+Base.:/(qp::InfiniteQPPEPS, α::Number) = InfiniteQPPEPS(unitcell(qp) ./ α)
+LinearAlgebra.norm(qp::InfiniteQPPEPS) = norm(unitcell(qp))
+
 physicalspace(qp::InfiniteQPPEPS) = physicalspace.(qp.AB)
 
 function virtualspace(O, dir)
@@ -88,12 +94,39 @@ end
 virtualspace(O::NestedTensor, dir) = virtualspace(O[1], dir)
 
 
+function ChainRulesCore.rrule(::typeof(Base.getindex), qp::InfiniteQPPEPS, args...)
+    tensor = qp[args...]
+
+    function getindex_pullback(Δtensor_)
+        Δtensor = ChainRulesCore.unthunk(Δtensor_)
+        Δqp = VectorInterface.zerovector(qp)
+        Δqp[args...] = Δtensor
+        return ChainRulesCore.NoTangent(), Δqp, ntuple(_ -> ChainRulesCore.NoTangent(), length(args))...
+    end
+
+    return tensor, getindex_pullback
+end
+
 # interface with InfiniteSquareNetwork
 function InfiniteSquareNetwork(top::InfiniteQPPEPS, bot::InfiniteQPPEPS=top)
     size(top) == size(bot) || throw(
         ArgumentError("Top PEPS, bottom PEPS and PEPO rows should have the same length")
     )
     return InfiniteSquareNetwork(map(tuple, unitcell(top), exchange_B_Bd(unitcell(bot))))
+end
+
+function ChainRulesCore.rrule(
+    ::Type{InfiniteSquareNetwork}, A::Matrix{O}
+) where {O<:Tuple{<:NestedTensor, <:NestedTensor}}
+    network = InfiniteSquareNetwork(A)
+
+    function InfiniteSquareNetwork_pullback(Δnetwork_)
+        Δnetwork = unthunk(Δnetwork_)
+        Δnetwork isa AbstractZero && return NoTangent(), VectorInterface.zerovector(A)
+        return NoTangent(), unitcell(Δnetwork)
+    end
+
+    return network, InfiniteSquareNetwork_pullback
 end
 
 ket(O::Tuple{<:NestedTensor, <:NestedTensor}) = O[1]
@@ -116,25 +149,12 @@ function ChainRulesCore.rrule(
 
     function InfiniteSquareNetwork_pullback(Δnetwork_)
         Δnetwork = unthunk(Δnetwork_)
+        Δnetwork isa AbstractZero &&
+            return NoTangent(), ZeroTangent(), ZeroTangent()
         Δtop = InfiniteQPPEPS(map(ket, unitcell(Δnetwork)))
         # `bot` is wrapped with `exchange_B_Bd` in the forward pass, so undo it here.
         Δbot = InfiniteQPPEPS(exchange_B_Bd(map(bra, unitcell(Δnetwork))))
         return NoTangent(), Δtop, Δbot
-    end
-
-    return network, InfiniteSquareNetwork_pullback
-end
-
-# This is a patch for InfiniteSquareNetwork; QP algorithms calls the rrule when computing projector by gs_network function
-function ChainRulesCore.rrule(::Type{InfiniteSquareNetwork}, A::AbstractMatrix)
-    network = InfiniteSquareNetwork(A)
-
-    function InfiniteSquareNetwork_pullback(Δnetwork_)
-        Δnetwork = unthunk(Δnetwork_)
-        ΔA = Δnetwork isa InfiniteSquareNetwork ?
-             unitcell(Δnetwork) :
-             unthunk(getproperty(Δnetwork, :A))
-        return NoTangent(), ΔA
     end
 
     return network, InfiniteSquareNetwork_pullback

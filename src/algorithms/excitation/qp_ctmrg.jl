@@ -105,46 +105,62 @@ end
 function leading_boundary(
     env₀::CTMRGEnv, network::InfiniteSquareNetwork, alg::SequentialQPCTMRG; conv_level = 1
 )
-    CS_old = ntuple(i -> map(x -> svd_vals(x[i]), env₀.corners), conv_level)
-    TS_old = ntuple(i -> map(x -> svd_vals(x[i]), env₀.edges), conv_level)
+    CS_old = ignore_derivatives() do
+        ntuple(i -> map(x -> svd_vals(x[i]), env₀.corners), conv_level)
+    end
+    TS_old = ignore_derivatives() do
+        ntuple(i -> map(x -> svd_vals(x[i]), env₀.edges), conv_level)
+    end
 
     η = one(real(scalartype(network)))
     env = deepcopy(env₀)
     log = ignore_derivatives(() -> MPSKit.IterLog("CTMRG"))
 
-    return LoggingExtras.withlevel(; alg.verbosity) do
-        # ctmrg_loginit!(log, η, network, env₀)
-        local info
-        for iter in 1:(alg.maxiter)
-            env, info = ctmrg_iteration(network, env, alg)  # Grow and renormalize in all 4 directions
+    local info
+    for iter in 1:(alg.maxiter)
+        env, info = ctmrg_iteration(network, env, alg)  # Grow and renormalize in all 4 directions
 
+        ηs = ignore_derivatives() do
             CS_new = ntuple(i -> map(x -> svd_vals(x[i]), env.corners), conv_level)
             TS_new = ntuple(i -> map(x -> svd_vals(x[i]), env.edges), conv_level)
-            ηs = calc_pair_convergence(CS_new, TS_new, CS_old, TS_old, conv_level)
-            η = ηs[1]
+            ηs_local = calc_pair_convergence(CS_new, TS_new, CS_old, TS_old, conv_level)
             CS_old, TS_old = CS_new, TS_new
+            ηs_local
+        end
+        η = conv_level > 0 ? ηs[conv_level] : η
 
-            if η ≤ alg.tol && iter ≥ alg.miniter
-                ctmrg_logfinish!(log, iter, η, network, env)
-                if conv_level > 1
-                    println("convergence: (A, B, Bd, BB) => $(ηs)")
+        ignore_derivatives() do
+            LoggingExtras.withlevel(; alg.verbosity) do
+                println("network value: ", qp_net_norm(network, env)[4])
+
+                if η ≤ alg.tol && iter ≥ alg.miniter
+                    ctmrg_logfinish!(log, iter, η, network, env)
+                    if conv_level > 1
+                        println("convergence: (A, B, Bd, BB) => $(ηs)")
+                    end
+                    return nothing
                 end
-                break
-            end
-            if iter == alg.maxiter
-                ctmrg_logcancel!(log, iter, η, network, env)
-                if conv_level > 1
-                    println("convergence: (A, B, Bd, BB) => $(ηs)")
+                if iter == alg.maxiter
+                    ctmrg_logcancel!(log, iter, η, network, env)
+                    if conv_level > 1
+                        println("convergence: (A, B, Bd, BB) => $(ηs)")
+                    end
+                else
+                    ctmrg_logiter!(log, iter, η, network, env)
+                    if conv_level > 1
+                        println("convergence: (A, B, Bd, BB) => $(ηs)")
+                    end
                 end
-            else
-                ctmrg_logiter!(log, iter, η, network, env)
-                if conv_level > 1
-                    println("convergence: (A, B, Bd, BB) => $(ηs)")
-                end
+                return nothing
             end
         end
-        return env, info
+
+        if η ≤ alg.tol && iter ≥ alg.miniter
+            break
+        end
     end
+
+    return env, info
 end
 
 function calc_pair_convergence(CS_new, TS_new, CS_old, TS_old, conv_level)

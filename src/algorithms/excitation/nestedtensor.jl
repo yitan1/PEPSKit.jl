@@ -39,31 +39,12 @@ function NestedTensor(Ts::AbstractVector{C}) where {C}
     return NestedTensor{C}(Ts)
 end
 
-function ChainRulesCore.ProjectTo(x::NestedTensor)
-    project_Ts = map(ChainRulesCore.ProjectTo, x.Ts)
-
-    function project(Δx)
-        Δx = ChainRulesCore.unthunk(Δx)
-        Δx isa ChainRulesCore.AbstractZero && return Δx
-
-        ΔTs = if Δx isa NestedTensor
-            Δx.Ts
-        elseif hasproperty(Δx, :Ts)
-            # @warn "x is not a NestedTensor"
-            ChainRulesCore.unthunk(getproperty(Δx, :Ts))
-        else
-            @warn "Δx is not NestedTensor and does not have a Ts field"
-            Δx
-        end
-
-        return NestedTensor([project_Ts[i](ΔTs[i]) for i in 1:4])
-    end
-
-    return project
-end
-
 # Convenience constructor from a single tensor
 nested_single(a) = NestedTensor([copy(a) for _ in 1:4])
+function nested_single0(a)
+    zero_a = VectorInterface.zerovector(a)
+    return NestedTensor([copy(a), zero_a, zero_a, zero_a])
+end
 
 Base.length(t::NestedTensor) = 4
 Base.eltype(t::NestedTensor) = eltype(t.Ts[1])
@@ -102,6 +83,8 @@ function VectorInterface.zerovector(A::NestedTensor, ::Type{S}) where {S<:Number
     return NestedTensor([VectorInterface.zerovector(t, S) for t in A.Ts])
 end
 
+Base.zero(A::NestedTensor) = VectorInterface.zerovector(A, VectorInterface.scalartype(A))
+
 ## Math
 function Base.:+(A₁::NestedTensor, A₂::NestedTensor)
     return NestedTensor(A₁.Ts .+ A₂.Ts)
@@ -113,6 +96,11 @@ Base.:*(α::Number, A::NestedTensor) = NestedTensor(α * A.Ts)
 Base.:*(A::NestedTensor, α::Number) = α * A
 Base.:/(A::NestedTensor, α::Number) = NestedTensor(A.Ts / α)
 # # LinearAlgebra.dot(A₁::NestedTensor, A₂::NestedTensor) = dot(unitcell(A₁), unitcell(A₂))
+function maxabs_element(t::AbstractTensorMap)
+    mapreduce(max, blocks(t); init = zero(real(scalartype(t)))) do (_, blk)
+        maximum(abs, blk)
+    end
+end
 LinearAlgebra.norm(A::NestedTensor) = norm(A.Ts[1])
 
 function Base.:*(A::NestedTensor, B::NestedTensor)
@@ -155,6 +143,47 @@ TensorKit.space(t::NestedTensor, dir::Int) = space(t[1], dir)
 TensorKit.permute(t::NestedTensor, perm) = NestedTensor(map(t -> permute(t, perm), t.Ts))
 function TensorKit.permute(t::NestedTensor, perm::Index2Tuple)
     return NestedTensor(map(t -> permute(t, perm), t.Ts))
+end
+
+""" From PEPSKit utility/util.jl
+    twistdual(t::AbstractTensorMap, i)
+    twistdual!(t::AbstractTensorMap, i)
+
+Twist the i-th leg of a tensor `t` if it represents a dual space.
+"""
+function twistdual!(t::NestedTensor, i::Int)
+    isdual(space(t[1], i)) || return t
+    return NestedTensor([twist!(t, i) for t in t.Ts])
+end
+function twistdual!(t::NestedTensor, is)
+    is′ = filter(i -> isdual(space(t[1], i)), is)
+    return NestedTensor([twist!(t, is′) for t in t.Ts])
+end
+twistdual(t::NestedTensor, is) = twistdual!(copy(t), is)
+
+"""
+    str(t)
+
+Fermionic supertrace by using `@tensor`.
+"""
+str(t::NestedTensor) = _str(BraidingStyle(sectortype(t[1])), t)
+_str(::Bosonic, t::NestedTensor) = map(tr, t.Ts)
+@generated function _str(::Fermionic, t::NestedTensor{<:AbstractTensorMap{<:Any, <:Any, N, N}}) where {N}
+    tex = tensorexpr(:t, ntuple(identity, N), ntuple(identity, N))
+    return macroexpand(@__MODULE__, :(@tensor $tex))
+end
+
+"""
+    trmul(H, ρ)
+
+Compute `tr(H * ρ)` without forming `H * ρ`.
+"""
+@generated function trmul(
+        H::AbstractTensorMap{<:Any, S, N, N}, ρ::NestedTensor{<:AbstractTensorMap{<:Any, S, N, N}}
+    ) where {S, N}
+    Hex = tensorexpr(:H, ntuple(identity, N), ntuple(i -> i + N, N))
+    ρex = tensorexpr(:ρ, ntuple(i -> i + N, N), ntuple(identity, N))
+    return macroexpand(@__MODULE__, :(@tensor $Hex * $ρex))
 end
 
 # TensorOperations interface

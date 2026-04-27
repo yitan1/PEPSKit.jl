@@ -1,27 +1,79 @@
+function ChainRulesCore.ProjectTo(x::NestedTensor)
+    Ts = x.Ts
+    project_Ts = map(ChainRulesCore.ProjectTo, Ts)
+
+    function project(Δx)
+        Δx = ChainRulesCore.unthunk(Δx)
+        Δx isa ChainRulesCore.AbstractZero && return Δx
+        Δx isa NestedTensor ||
+            throw(ArgumentError("expected NestedTensor tangent, got $(typeof(Δx))"))
+
+        ΔTs = Δx.Ts
+        length(ΔTs) == length(Ts) ||
+            throw(DimensionMismatch("NestedTensor tangent length mismatch"))
+
+        return NestedTensor(map(eachindex(Ts)) do i
+            ΔT = ChainRulesCore.unthunk(ΔTs[i])
+            ΔT isa ChainRulesCore.AbstractZero && return VectorInterface.zerovector(Ts[i])
+            return project_Ts[i](ΔT)
+        end)
+    end
+
+    return project
+end
+
+function _nestedtensor_components_from_tangent(t::NestedTensor, Δt)
+    Δt = unthunk(Δt)
+    Δt isa AbstractZero && return [zerovector(T) for T in t.Ts]
+    return ProjectTo(t)(Δt).Ts
+end
+
 function ChainRulesCore.rrule(
     ::Type{NestedTensor}, Ts::Vector{C}
 ) where {C<:AbstractTensorMap}
     nt = NestedTensor(Ts)
     function pullback(Δnt_)
-        Δnt = unthunk(Δnt_)
-        return NoTangent(), Δnt.Ts
+        return NoTangent(), _nestedtensor_components_from_tangent(nt, Δnt_)
     end
     return nt, pullback
+end
+
+function ChainRulesCore.rrule(
+    ::Type{NestedTensor{C}}, Ts::Vector{C}
+) where {C<:AbstractTensorMap}
+    nt = NestedTensor{C}(Ts)
+    function pullback(Δnt_)
+        return NoTangent(), _nestedtensor_components_from_tangent(nt, Δnt_)
+    end
+    return nt, pullback
+end
+
+function ChainRulesCore.rrule(::typeof(Base.getproperty), t::NestedTensor, prop::Symbol)
+    prop === :Ts || throw(ArgumentError("unknown property $prop"))
+
+    Ts = t.Ts
+    project_t = ProjectTo(t)
+
+    function getproperty_pullback(ΔTs_)
+        ΔTs = unthunk(ΔTs_)
+        Δt = ΔTs isa AbstractZero ? ΔTs : NestedTensor(collect(ΔTs))
+        return NoTangent(), project_t(Δt), NoTangent()
+    end
+
+    return Ts, getproperty_pullback
 end
 
 function ChainRulesCore.rrule(::typeof(getindex), t::NestedTensor, i::Int)
     y = getindex(t, i)
     project_t = ProjectTo(t)
     project_y = ProjectTo(y)
+    Ts = t.Ts
 
     function pullback(Δy_)
         Δy = unthunk(Δy_)
-        if Δy isa AbstractZero
-            return NoTangent(), Δy, NoTangent()
-        end
-
-        dTs = [zerovector(tt) for tt in t.Ts]
-        dTs[i] = project_y(Δy)
+        Δy = Δy isa AbstractZero ? zerovector(y) : project_y(Δy)
+        dTs = [zerovector(T) for T in Ts]
+        dTs[i] = Δy
         return NoTangent(), project_t(NestedTensor(dTs)), NoTangent()
     end
 
@@ -47,8 +99,7 @@ end
 function ChainRulesCore.rrule(::typeof(TO.tensorscalar), C::NestedTensor)
     y = TO.tensorscalar(C)
     function pullback(Δy_)
-        Δy = unthunk(Δy_)
-        ΔTs = Δy.Ts
+        ΔTs = _nestedtensor_components_from_tangent(y, Δy_)
         dT = TO.tensoralloc(typeof(C), TO.tensorstructure(C))
         return NoTangent(), ProjectTo(C)(fill!(dT, ΔTs))
     end

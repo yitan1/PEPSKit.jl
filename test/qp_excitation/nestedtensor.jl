@@ -13,7 +13,7 @@ t = randn(2, 2)
 T = NestedTensor([t, t, t, t])
 
 # For TensorMap
-t = rand(ℂ^2 * ℂ^3 * ℂ^4)
+t = rand(ComplexF64, ℂ^2 * ℂ^3 * ℂ^4)
 T = NestedTensor([t, t, t, t])
 
 # test contraction and rrule
