@@ -60,6 +60,19 @@ unitcell(qp::InfiniteQPPEPS) = qp.AB
 ket(qp_peps::InfiniteQPPEPS) = qp_peps
 bra(qp_peps::InfiniteQPPEPS) = InfiniteQPPEPS(exchange_B_Bd(unitcell(qp_peps)))
 
+function ChainRulesCore.rrule(::typeof(unitcell), qp::InfiniteQPPEPS)
+    AB = unitcell(qp)
+
+    function unitcell_pullback(ΔAB_)
+        ΔAB = ChainRulesCore.unthunk(ΔAB_)
+        ΔAB isa ChainRulesCore.AbstractZero &&
+            return ChainRulesCore.NoTangent(), ChainRulesCore.ZeroTangent()
+        return ChainRulesCore.NoTangent(), InfiniteQPPEPS(ΔAB)
+    end
+
+    return AB, unitcell_pullback
+end
+
 Base.size(qp::InfiniteQPPEPS, args...) = size(unitcell(qp), args...)
 Base.length(qp::InfiniteQPPEPS) = length(unitcell(qp))
 
@@ -86,7 +99,7 @@ Base.:*(qp::InfiniteQPPEPS, α::Number) = α * qp
 Base.:/(qp::InfiniteQPPEPS, α::Number) = InfiniteQPPEPS(unitcell(qp) ./ α)
 LinearAlgebra.norm(qp::InfiniteQPPEPS) = norm(unitcell(qp))
 
-physicalspace(qp::InfiniteQPPEPS) = physicalspace.(qp.AB)
+physicalspace(qp::InfiniteQPPEPS) = physicalspace.(unitcell(qp))
 
 function virtualspace(O, dir)
     return virtualspace(O[1], dir) ⊗ virtualspace(O[2], dir)'
@@ -101,7 +114,7 @@ function ChainRulesCore.rrule(::typeof(Base.getindex), qp::InfiniteQPPEPS, args.
         Δtensor = ChainRulesCore.unthunk(Δtensor_)
         Δqp = VectorInterface.zerovector(qp)
         Δqp[args...] = Δtensor
-        return ChainRulesCore.NoTangent(), Δqp, ntuple(_ -> ChainRulesCore.NoTangent(), length(args))...
+        return ChainRulesCore.NoTangent(), Δqp, ChainRulesCore.NoTangent(), ChainRulesCore.NoTangent()
     end
 
     return tensor, getindex_pullback

@@ -77,8 +77,8 @@ for i in 1:M
     gN_tensor = env_bra[3] / nAA
     gN = InfinitePEPS([gN_tensor;;])
 
-    projH = vec(Array(Bbasis' * PEPSKit.to_vec(gH[1])))
-    projN = vec(Array(Bbasis' * PEPSKit.to_vec(gN[1])))
+    projH = vec(convert(Array, Bbasis' * PEPSKit.to_vec(gH[1])))
+    projN = vec(convert(Array, Bbasis' * PEPSKit.to_vec(gN[1])))
     effH[:, i] .= projH[1:M]
     effN[:, i] .= projN[1:M]
 

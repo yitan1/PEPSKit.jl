@@ -62,8 +62,9 @@ function ctmrg_leftmove(
         C4 → T3 →   r+1
         c-1  c 
     =#
-    network_gs = gs_Network(network)
-    env_gs = gs_CTMRGEnv(env)
+    network_gs, env_gs = ignore_derivatives() do
+        gs_Network(network), gs_CTMRGEnv(env)
+    end
     projectors, info = sequential_projectors(col, network_gs, env_gs, alg.projector_alg)
     env = renormalize_sequentially_qp(col, projectors, network, env; kx=kx, ky=ky)
     return env, info
