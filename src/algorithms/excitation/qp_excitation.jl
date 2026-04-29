@@ -62,18 +62,21 @@ function run_es(A, B, qp_env0, ham; pre_ctm_alg = nothing)
 end
 
 function qp_norm(AB, qp_env)
-    env_bra = [_contract_env_bra((r, c), bra(AB), qp_env) for r in axes(AB, 1), c in axes(AB, 2)]
+    AB_ket = ket(AB)
+    AB_bra = bra(AB)
+    env_ket = [
+        _contract_env_ket((r, c), AB_ket, qp_env) for r in axes(AB, 1), c in axes(AB, 2)
+    ]
 
-    n_all = [_contract_env_bra_ket(env_bra[r, c], AB[r, c]) for r in axes(env_bra, 1), c in axes(env_bra, 2)]
-    nAA = [_contract_env_bra_ket(env_bra[r, c][1], AB[r, c][1]) for r in axes(env_bra, 1), c in axes(env_bra, 2)]
-    nBd_B = [_contract_env_bra_ket(env_bra[r, c][3], AB[r, c][2]) for r in axes(env_bra, 1), c in axes(env_bra, 2)]
-    # gs_nrm = gs_norm1x1(InfiniteSquareNetwork(AB), qp_env)
-    # net_val = qp_network_value(InfiniteSquareNetwork(AB), qp_env)
-    # @show gs_nrm[1]
-    # @show net_val
-    # @show nAA
-    # @show nBd_B
-    qp_nrm = nBd_B ./ nAA
+    nAA = [
+        _contract_env_ket_bra(env_ket[r, c][1], AB_bra[r, c][1]) for
+        r in axes(env_ket, 1), c in axes(env_ket, 2)
+    ]
+    nB_Bd = [
+        _contract_env_ket_bra(env_ket[r, c][2], AB_bra[r, c][3]) for
+        r in axes(env_ket, 1), c in axes(env_ket, 2)
+    ]
+    qp_nrm = nB_Bd ./ nAA
     return sum(qp_nrm) / length(qp_nrm)
 end
 

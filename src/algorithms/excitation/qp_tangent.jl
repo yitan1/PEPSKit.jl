@@ -12,11 +12,18 @@ function tangent_basis(env, bra, ket=bra)
     basis = [
         begin
             env_bra = _contract_env_bra((r, c), bra, env)
-            left_null(to_vec(env_bra))
+            env_vec = to_vec(env_bra)
+            null_row = right_null(transpose(env_vec))
+            TensorMap(convert(Array, adjoint(null_row)), space(env_vec, 1) ← space(null_row, 1))
         end
         for r in axes(bra, 1), c in axes(bra, 2)
     ]
     return basis
+end
+
+function _basis_column_peps(Bbasis, i::Integer, reference::InfinitePEPS)
+    B_tensor = TensorMap(Array(reshape(Bbasis[:, i], dims(reference[1]))), space(reference[1]))
+    return InfinitePEPS([B_tensor;;])
 end
 
 function shift_hamiltonian(gs, env, ham)
@@ -91,7 +98,63 @@ function _contract_env_bra(
     return bra_env
 end
 
+function _contract_env_ket(ind::Tuple{Int,Int}, ket, env::CTMRGEnv)
+    r, c = ind
+    return _contract_env_ket(
+        env.corners[NORTHWEST, _prev(r, end), _prev(c, end)],
+        env.corners[NORTHEAST, _prev(r, end), _next(c, end)],
+        env.corners[SOUTHEAST, _next(r, end), _next(c, end)],
+        env.corners[SOUTHWEST, _next(r, end), _prev(c, end)],
+        env.edges[NORTH, _prev(r, end), c], env.edges[EAST, r, _next(c, end)],
+        env.edges[SOUTH, _next(r, end), c], env.edges[WEST, r, _prev(c, end)],
+        ket[r, c],
+    )
+end
+
+function _contract_env_ket(
+    C_northwest, C_northeast, C_southeast, C_southwest,
+    E_north::CTMRG_PEPS_EdgeTensor, E_east::CTMRG_PEPS_EdgeTensor,
+    E_south::CTMRG_PEPS_EdgeTensor, E_west::CTMRG_PEPS_EdgeTensor,
+    ket
+)
+    @autoopt @tensor ket_env[d; D_N_below D_E_below D_S_below D_W_below] :=
+        E_west[χ_WSW D_W_above D_W_below; χ_WNW] *
+        C_northwest[χ_WNW; χ_NNW] *
+        E_north[χ_NNW D_N_above D_N_below; χ_NNE] *
+        C_northeast[χ_NNE; χ_ENE] *
+        E_east[χ_ENE D_E_above D_E_below; χ_ESE] *
+        C_southeast[χ_ESE; χ_SSE] *
+        E_south[χ_SSE D_S_above D_S_below; χ_SSW] *
+        C_southwest[χ_SSW; χ_WSW] *
+        ket[d; D_N_above D_E_above D_S_above D_W_above]
+    return ket_env
+end
+
+function _contract_env_ket(
+    C_northwest, C_northeast, C_southeast, C_southwest,
+    E_north::NestedTensor, E_east::NestedTensor,
+    E_south::NestedTensor, E_west::NestedTensor,
+    ket
+)
+    @autoopt @tensor ket_env[d; D_N_below D_E_below D_S_below D_W_below] :=
+        E_west[χ_WSW D_W_above D_W_below; χ_WNW] *
+        C_northwest[χ_WNW; χ_NNW] *
+        E_north[χ_NNW D_N_above D_N_below; χ_NNE] *
+        C_northeast[χ_NNE; χ_ENE] *
+        E_east[χ_ENE D_E_above D_E_below; χ_ESE] *
+        C_southeast[χ_ESE; χ_SSE] *
+        E_south[χ_SSE D_S_above D_S_below; χ_SSW] *
+        C_southwest[χ_SSW; χ_WSW] *
+        ket[d; D_N_above D_E_above D_S_above D_W_above]
+    return ket_env
+end
+
 function _contract_env_bra_ket(env_bra, ket)
     return @autoopt @tensor env_bra[d; D_N_above D_E_above D_S_above D_W_above] *
         ket[d; D_N_above D_E_above D_S_above D_W_above]
+end
+
+function _contract_env_ket_bra(env_ket, bra)
+    return @autoopt @tensor env_ket[d; D_N_below D_E_below D_S_below D_W_below] *
+        conj(bra[d; D_N_below D_E_below D_S_below D_W_below])
 end
